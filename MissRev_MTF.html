@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Miss Rev MTF Detail Explorer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 1120px;
+    margin: auto;
+    padding: 20px;
+    color: #222;
+  }
+  h2 { margin-bottom: 8px; }
+  .subtitle { color: #555; margin-bottom: 20px; }
+  .controls {
+    display: grid;
+    grid-template-columns: 190px 1fr 130px;
+    gap: 10px;
+    align-items: center;
+    max-width: 900px;
+    margin-bottom: 18px;
+  }
+  .readout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    max-width: 900px;
+    margin-bottom: 24px;
+  }
+  .readout div {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: #f7f7f7;
+    padding: 10px;
+  }
+  .section { margin-top: 28px; }
+  .grid-two {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+  .grid-three {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 14px;
+  }
+  .card {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    padding: 10px;
+    background: #fafafa;
+  }
+  .card-title {
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+  .before { color: #0645ad; }
+  .after { color: #b00000; }
+  .low { color: #555; }
+  .blue { color: blue; font-weight: bold; }
+  .red { color: red; font-weight: bold; }
+  img {
+    width: 100%;
+    border: 1px solid #ccc;
+    background: white;
+    display: block;
+  }
+  canvas {
+    width: 100%;
+    border: 1px solid #ccc;
+    background: white;
+    display: block;
+  }
+  .note {
+    font-size: 0.9rem;
+    color: #555;
+    margin-top: 6px;
+  }
+  .explain {
+    border-left: 4px solid #777;
+    background: #f5f5f5;
+    padding: 10px 14px;
+    margin-top: 12px;
+    font-size: 0.95rem;
+  }
+</style>
+</head>
+<body>
+
+<h2>Miss Rev MTF Detail Explorer</h2>
+<div class="subtitle">Precomputed blur states show that big structures survive blur better than fine texture because MTF is higher at low spatial frequencies.</div>
+
+<div class="controls">
+  <label>System Blur State</label>
+  <input type="range" id="blurState" min="0" max="4" step="1" value="0">
+  <span id="blurLabel">No blur</span>
+</div>
+
+<div class="readout">
+  <div><span class="blue">Big detail / low frequency:</span> <span id="bigMTFText"></span></div>
+  <div><span class="red">Fine detail / high frequency:</span> <span id="fineMTFText"></span></div>
+</div>
+
+<div class="section grid-two">
+  <div class="card">
+    <div class="card-title before">BEFORE: Original Image</div>
+    <img src="full_original.png" alt="Original Miss Rev image">
+  </div>
+
+  <div class="card">
+    <div class="card-title after">AFTER: Image Through System</div>
+    <img id="systemImage" src="full_blur_0.png" alt="Blurred Miss Rev image">
+  </div>
+</div>
+
+<div class="section">
+  <h3>Big Detail vs Fine Detail</h3>
+  <div class="grid-three">
+    <div class="card">
+      <div class="card-title low">Big / Low-Frequency Detail</div>
+      <img src="big_detail_low_frequency.png" alt="Low frequency broad structure image">
+      <div class="note">Broad shapes remain recognizable even when fine texture is lost.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title before">Fine Detail Before</div>
+      <img src="crop_original.png" alt="Original fine detail crop">
+      <div class="note">Magnified crop: fur, grass, edges, and lettering.</div>
+    </div>
+
+    <div class="card">
+      <div class="card-title after">Fine Detail After</div>
+      <img id="cropImage" src="crop_blur_0.png" alt="Blurred fine detail crop">
+      <div class="note">Same crop after system blur. Fine structure loses contrast first.</div>
+    </div>
+  </div>
+
+  <div class="explain">
+    MTF describes how much contrast survives at each spatial frequency. Big structures are low-frequency and keep more contrast.
+    Fine textures and sharp edges are high-frequency and lose contrast first as blur increases.
+  </div>
+</div>
+
+<div class="section">
+  <h3>MTF Curve</h3>
+  <canvas id="mtfCanvas" width="900" height="320"></canvas>
+  <div class="note">Blue marker = big/low-frequency detail. Red marker = fine/high-frequency detail. Both markers are calculated from the same curve equation.</div>
+</div>
+
+<script>
+const labels = ['No blur', 'Mild blur', 'Moderate blur', 'Strong blur', 'Extreme blur'];
+const radii = [0, 2, 5, 9, 14];
+const fullFiles = ['full_blur_0.png', 'full_blur_1.png', 'full_blur_2.png', 'full_blur_3.png', 'full_blur_4.png'];
+const cropFiles = ['crop_blur_0.png', 'crop_blur_1.png', 'crop_blur_2.png', 'crop_blur_3.png', 'crop_blur_4.png'];
+
+const slider = document.getElementById("blurState");
+const blurLabel = document.getElementById("blurLabel");
+const systemImage = document.getElementById("systemImage");
+const cropImage = document.getElementById("cropImage");
+const mtfCanvas = document.getElementById("mtfCanvas");
+const ctx = mtfCanvas.getContext("2d");
+
+function mtfValue(nf, idx) {
+  // Same equation used for both the curve and marker dots.
+  const strength = idx / 4;
+  return Math.exp(-strength * 4.2 * nf * nf);
+}
+
+function drawMTF(idx) {
+  const w = mtfCanvas.width;
+  const h = mtfCanvas.height;
+  const left = 60;
+  const right = w - 30;
+  const top = 25;
+  const bottom = h - 50;
+  const plotW = right - left;
+  const plotH = bottom - top;
+
+  ctx.clearRect(0, 0, w, h);
+
+  // Grid
+  ctx.strokeStyle = "#ddd";
+  ctx.lineWidth = 1;
+  for (let y = 30; y <= bottom; y += 48) {
+    ctx.beginPath();
+    ctx.moveTo(left, y);
+    ctx.lineTo(right, y);
+    ctx.stroke();
+  }
+  for (let x = left; x <= right; x += 202.5) {
+    ctx.beginPath();
+    ctx.moveTo(x, top);
+    ctx.lineTo(x, bottom);
+    ctx.stroke();
+  }
+
+  // Axes
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(left, top);
+  ctx.lineTo(left, bottom);
+  ctx.lineTo(right, bottom);
+  ctx.stroke();
+
+  ctx.fillStyle = "#333";
+  ctx.font = "13px Arial";
+  ctx.fillText("Normalized spatial frequency, f / fNyquist", w / 2 - 130, h - 14);
+
+  ctx.save();
+  ctx.translate(20, h / 2 + 35);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("MTF", 0, 0);
+  ctx.restore();
+
+  ctx.font = "12px Arial";
+  ctx.fillText("1.0", 28, 33);
+  ctx.fillText("0.5", 28, 155);
+  ctx.fillText("0", 42, bottom + 2);
+  ctx.fillText("0", left - 4, h - 30);
+  ctx.fillText("0.25", 255, h - 30);
+  ctx.fillText("0.50", 455, h - 30);
+  ctx.fillText("0.75", 655, h - 30);
+  ctx.fillText("1.0", w - 42, h - 30);
+
+  // Curve
+  ctx.strokeStyle = "black";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+
+  for (let i = 0; i <= 400; i++) {
+    const nf = i / 400;
+    const value = mtfValue(nf, idx);
+    const x = left + nf * plotW;
+    const y = bottom - value * plotH;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  // Markers on same curve
+  const lowF = 0.12;
+  const highF = 0.80;
+  const lowValue = mtfValue(lowF, idx);
+  const highValue = mtfValue(highF, idx);
+
+  const lowX = left + lowF * plotW;
+  const lowY = bottom - lowValue * plotH;
+
+  const highX = left + highF * plotW;
+  const highY = bottom - highValue * plotH;
+
+  ctx.fillStyle = "blue";
+  ctx.beginPath();
+  ctx.arc(lowX, lowY, 7, 0, 2 * Math.PI);
+  ctx.fill();
+
+  ctx.fillStyle = "red";
+  ctx.beginPath();
+  ctx.arc(highX, highY, 7, 0, 2 * Math.PI);
+  ctx.fill();
+
+  ctx.fillStyle = "#222";
+  ctx.font = "13px Arial";
+  ctx.fillText("Big detail", lowX + 10, lowY - 8);
+  ctx.fillText("Fine detail", highX - 35, Math.max(35, highY - 10));
+
+  document.getElementById("bigMTFText").innerText =
+    "MTF ≈ " + lowValue.toFixed(2) + " at f/fNyquist = 0.12";
+  document.getElementById("fineMTFText").innerText =
+    "MTF ≈ " + highValue.toFixed(2) + " at f/fNyquist = 0.80";
+}
+
+function updateWidget() {
+  const idx = parseInt(slider.value, 10);
+  blurLabel.innerText = labels[idx] + " (" + radii[idx] + " px)";
+  systemImage.src = fullFiles[idx];
+  cropImage.src = cropFiles[idx];
+  drawMTF(idx);
+}
+
+slider.addEventListener("input", updateWidget);
+updateWidget();
+</script>
+
+</body>
+</html>
