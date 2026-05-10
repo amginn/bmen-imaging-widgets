@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Line Pair MTF Explorer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    padding: 20px;
+    max-width: 980px;
+    margin: auto;
+    color: #222;
+  }
+
+  h2 {
+    margin-bottom: 20px;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: 190px 1fr 90px;
+    gap: 8px;
+    align-items: center;
+    max-width: 900px;
+  }
+
+  .section {
+    margin-top: 26px;
+  }
+
+  .phantom-box {
+    border: 2px solid #bbb;
+    border-radius: 8px;
+    padding: 14px;
+    background: #fafafa;
+  }
+
+  .phantom-row {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+
+  .phantom-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .object-label {
+    font-weight: bold;
+    color: #0645ad;
+  }
+
+  .image-label {
+    font-weight: bold;
+    color: #b00000;
+  }
+
+  .canvas-wrap {
+    border: 1px solid #ccc;
+    background: white;
+    padding: 4px;
+  }
+
+  canvas {
+    max-width: 100%;
+    display: block;
+  }
+
+  .caption {
+    font-size: 0.9rem;
+    color: #555;
+    margin-top: 4px;
+  }
+
+  .note {
+    font-size: 0.9rem;
+    color: #555;
+    margin-top: 6px;
+  }
+</style>
+</head>
+<body>
+
+<h2>Line Pair MTF Explorer</h2>
+
+<div class="controls">
+  <label>Line-Pair Frequency</label>
+  <input type="range" id="freq" min="2" max="40" step="1" value="15">
+  <span id="freqValue"></span>
+
+  <label>Object Contrast</label>
+  <input type="range" id="contrast" min="0" max="1" step="0.05" value="0">
+  <span id="contrastValue"></span>
+
+  <label>System Blur</label>
+  <input type="range" id="blur" min="0.2" max="8" step="0.1" value="2">
+  <span id="blurValue"></span>
+</div>
+
+<div class="section phantom-box">
+  <div class="phantom-row">
+    <div>
+      <div class="object-label">BEFORE</div>
+      <div class="caption">Object input</div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="inputCanvas" width="800" height="70"></canvas>
+    </div>
+  </div>
+
+  <div class="phantom-row">
+    <div>
+      <div class="image-label">AFTER</div>
+      <div class="caption">System image</div>
+    </div>
+    <div class="canvas-wrap">
+      <canvas id="outputCanvas" width="800" height="70"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <strong>Intensity Profiles</strong>
+  <span style="color:blue;">Blue = before object</span>,
+  <span style="color:red;">Red = after image</span><br>
+  <canvas id="profileCanvas" width="800" height="270" style="border:1px solid #ccc; margin-top:10px;"></canvas>
+  <div class="note">Profile view is zoomed into the center of the phantom so the line-pair pattern stays visible.</div>
+</div>
+
+<div class="section">
+  <strong>MTF Curve</strong><br>
+  <canvas id="mtfCanvas" width="800" height="300" style="border:1px solid #ccc; margin-top:10px;"></canvas>
+</div>
+
+<script>
+const inputCanvas = document.getElementById('inputCanvas');
+const inputCtx = inputCanvas.getContext('2d');
+
+const outputCanvas = document.getElementById('outputCanvas');
+const outputCtx = outputCanvas.getContext('2d');
+
+const profileCanvas = document.getElementById('profileCanvas');
+const profileCtx = profileCanvas.getContext('2d');
+
+const mtfCanvas = document.getElementById('mtfCanvas');
+const mtfCtx = mtfCanvas.getContext('2d');
+
+const width = 800;
+const nyquistCyclesAcrossImage = width / 2;
+
+function effectiveSigma(blurSliderValue) {
+  return blurSliderValue * 0.35;
+}
+
+function makeKernel(sigma) {
+  const radius = Math.max(1, Math.ceil(3 * sigma));
+  let kernel = [];
+  let sum = 0;
+
+  for (let i = -radius; i <= radius; i++) {
+    const value = Math.exp(-(i * i) / (2 * sigma * sigma));
+    kernel.push(value);
+    sum += value;
+  }
+
+  return kernel.map(value => value / sum);
+}
+
+function blurSignal(signal, kernel) {
+  const radius = Math.floor(kernel.length / 2);
+  let output = new Array(signal.length).fill(0);
+
+  for (let i = 0; i < signal.length; i++) {
+    let total = 0;
+
+    for (let k = 0; k < kernel.length; k++) {
+      let index = i + k - radius;
+      index = Math.max(0, Math.min(signal.length - 1, index));
+      total += signal[index] * kernel[k];
+    }
+
+    output[i] = total;
+  }
+
+  return output;
+}
+
+function gaussianMTFNormalized(normalizedFrequency, sigmaPixels) {
+  const cyclesPerPixel = normalizedFrequency * 0.5;
+  return Math.exp(-2 * Math.PI * Math.PI * sigmaPixels * sigmaPixels * cyclesPerPixel * cyclesPerPixel);
+}
+
+function drawAxes(ctx, canvasWidth, canvasHeight, xLabel, yLabel) {
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(55, 25);
+  ctx.lineTo(55, canvasHeight - 45);
+  ctx.lineTo(canvasWidth - 25, canvasHeight - 45);
+  ctx.stroke();
+
+  ctx.fillStyle = '#333';
+  ctx.font = '13px Arial';
+  ctx.fillText(xLabel, canvasWidth / 2 - 105, canvasHeight - 12);
+
+  ctx.save();
+  ctx.translate(18, canvasHeight / 2 + 35);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+function redraw() {
+  const displayedFreqPercent = parseFloat(document.getElementById('freq').value);
+  const sliderContrast = parseFloat(document.getElementById('contrast').value);
+  const blurSlider = parseFloat(document.getElementById('blur').value);
+  const sigma = effectiveSigma(blurSlider);
+
+  const contrast = 1 - sliderContrast;
+
+  const normalizedFrequency = displayedFreqPercent / 100;
+  const cyclesAcrossImage = normalizedFrequency * nyquistCyclesAcrossImage;
+
+  document.getElementById('freqValue').innerText = displayedFreqPercent.toFixed(0) + "% Nyq.";
+  document.getElementById('contrastValue').innerText = Math.round(contrast * 100) + "%";
+  document.getElementById('blurValue').innerText = blurSlider.toFixed(1);
+
+  const baseline = 0.5;
+  let inputSignal = [];
+
+  for (let x = 0; x < width; x++) {
+    const squareWave = Math.sign(Math.sin(2 * Math.PI * cyclesAcrossImage * x / width));
+    const value = baseline + (contrast / 2) * squareWave;
+    inputSignal.push(Math.max(0, Math.min(1, value)));
+  }
+
+  const outputSignal = blurSignal(inputSignal, makeKernel(sigma));
+
+  inputCtx.clearRect(0, 0, 800, 70);
+  outputCtx.clearRect(0, 0, 800, 70);
+
+  for (let x = 0; x < width; x++) {
+    let gray = Math.floor(inputSignal[x] * 255);
+    inputCtx.fillStyle = `rgb(${gray},${gray},${gray})`;
+    inputCtx.fillRect(x, 0, 1, 70);
+
+    gray = Math.floor(outputSignal[x] * 255);
+    outputCtx.fillStyle = `rgb(${gray},${gray},${gray})`;
+    outputCtx.fillRect(x, 0, 1, 70);
+  }
+
+  // Zoomed intensity profile
+  profileCtx.clearRect(0, 0, 800, 270);
+
+  profileCtx.strokeStyle = '#ddd';
+  profileCtx.lineWidth = 1;
+  for (let y = 35; y <= 230; y += 48) {
+    profileCtx.beginPath();
+    profileCtx.moveTo(55, y);
+    profileCtx.lineTo(775, y);
+    profileCtx.stroke();
+  }
+
+  drawAxes(profileCtx, 800, 270, "Zoomed position across phantom", "Intensity");
+
+  const zoomWidth = 220;
+  const start = Math.floor(width / 2 - zoomWidth / 2);
+  const end = start + zoomWidth;
+
+  profileCtx.strokeStyle = 'blue';
+  profileCtx.lineWidth = 2;
+  profileCtx.beginPath();
+
+  for (let i = start; i < end; i++) {
+    const plotX = 55 + ((i - start) / (zoomWidth - 1)) * 720;
+    const y = 230 - inputSignal[i] * 190;
+    if (i === start) profileCtx.moveTo(plotX, y);
+    else profileCtx.lineTo(plotX, y);
+  }
+
+  profileCtx.stroke();
+
+  profileCtx.strokeStyle = 'red';
+  profileCtx.lineWidth = 2.5;
+  profileCtx.beginPath();
+
+  for (let i = start; i < end; i++) {
+    const plotX = 55 + ((i - start) / (zoomWidth - 1)) * 720;
+    const y = 230 - outputSignal[i] * 190;
+    if (i === start) profileCtx.moveTo(plotX, y);
+    else profileCtx.lineTo(plotX, y);
+  }
+
+  profileCtx.stroke();
+
+  // MTF curve
+  mtfCtx.clearRect(0, 0, 800, 300);
+
+  mtfCtx.strokeStyle = '#ddd';
+  mtfCtx.lineWidth = 1;
+
+  for (let y = 35; y <= 255; y += 44) {
+    mtfCtx.beginPath();
+    mtfCtx.moveTo(55, y);
+    mtfCtx.lineTo(775, y);
+    mtfCtx.stroke();
+  }
+
+  for (let x = 55; x <= 775; x += 144) {
+    mtfCtx.beginPath();
+    mtfCtx.moveTo(x, 25);
+    mtfCtx.lineTo(x, 255);
+    mtfCtx.stroke();
+  }
+
+  drawAxes(mtfCtx, 800, 300, "Normalized spatial frequency, f / fNyquist", "MTF");
+
+  mtfCtx.strokeStyle = 'black';
+  mtfCtx.lineWidth = 2;
+  mtfCtx.beginPath();
+
+  for (let i = 0; i <= 300; i++) {
+    const nf = i / 300;
+    const mtf = gaussianMTFNormalized(nf, sigma);
+    const x = 55 + nf * 720;
+    const y = 255 - mtf * 220;
+
+    if (i === 0) mtfCtx.moveTo(x, y);
+    else mtfCtx.lineTo(x, y);
+  }
+
+  mtfCtx.stroke();
+
+  const currentMTF = gaussianMTFNormalized(normalizedFrequency, sigma);
+  const pointX = 55 + normalizedFrequency * 720;
+  const pointY = 255 - currentMTF * 220;
+
+  mtfCtx.fillStyle = 'red';
+  mtfCtx.beginPath();
+  mtfCtx.arc(pointX, pointY, 5, 0, 2 * Math.PI);
+  mtfCtx.fill();
+
+  mtfCtx.fillStyle = '#222';
+  mtfCtx.font = '13px Arial';
+  mtfCtx.fillText("Current MTF ≈ " + currentMTF.toFixed(2), 585, 38);
+
+  mtfCtx.font = '12px Arial';
+  mtfCtx.fillText("0", 51, 273);
+  mtfCtx.fillText("0.25", 225, 273);
+  mtfCtx.fillText("0.50", 405, 273);
+  mtfCtx.fillText("0.75", 585, 273);
+  mtfCtx.fillText("1.0", 765, 273);
+
+  mtfCtx.fillText("1.0", 25, 38);
+  mtfCtx.fillText("0.5", 25, 148);
+  mtfCtx.fillText("0", 34, 258);
+}
+
+['freq', 'contrast', 'blur'].forEach(id => {
+  document.getElementById(id).addEventListener('input', redraw);
+});
+
+redraw();
+</script>
+
+</body>
+</html>
