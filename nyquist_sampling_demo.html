@@ -1,0 +1,91 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Nyquist Sampling Demo</title>
+<style>
+body { font-family: Arial, sans-serif; margin: 20px; }
+canvas { border: 1px solid #ccc; display:block; margin-top:10px; }
+label { font-weight: bold; }
+.small { color:#555; margin-top:8px; }
+</style>
+</head>
+<body>
+<h3>Nyquist Sampling Demo</h3>
+
+<label>Sampling Rate (samples per cycle): <span id="rateVal">2.0</span></label><br>
+<input type="range" id="rateSlider" min="0.5" max="5" step="0.1" value="2">
+
+<div class="small" id="status"></div>
+
+<canvas id="canvas" width="800" height="300"></canvas>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const slider = document.getElementById("rateSlider");
+
+function draw(){
+    const samplesPerCycle = parseFloat(slider.value);
+    document.getElementById("rateVal").textContent = samplesPerCycle.toFixed(1);
+
+    let status = "";
+    if(samplesPerCycle < 2){
+        status = "Aliasing: Undersampled (below Nyquist)";
+    } else if(Math.abs(samplesPerCycle-2) < 0.05){
+        status = "Critical sampling: At Nyquist limit";
+    } else {
+        status = "Oversampled: Signal preserved";
+    }
+    document.getElementById("status").textContent = status;
+
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    const x0 = 40;
+    const yMid = 150;
+    const amp = 60;
+    const width = 700;
+    const cycles = 3;
+
+    // Draw continuous wave
+    ctx.beginPath();
+    for(let i=0;i<=width;i++){
+        const x = x0 + i;
+        const phase = (i/width)*cycles*2*Math.PI;
+        const y = yMid - amp*Math.sin(phase);
+        if(i===0) ctx.moveTo(x,y);
+        else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    // Sample points
+    const nSamples = Math.max(2, Math.floor(samplesPerCycle*cycles));
+    const pts = [];
+
+    for(let i=0;i<nSamples;i++){
+        const t = i/(nSamples-1);
+        const phase = t*cycles*2*Math.PI;
+        const x = x0 + t*width;
+        const y = yMid - amp*Math.sin(phase);
+        pts.push([x,y]);
+
+        ctx.beginPath();
+        ctx.arc(x,y,4,0,2*Math.PI);
+        ctx.fill();
+    }
+
+    // Connect sampled points
+    ctx.beginPath();
+    pts.forEach((p,idx)=>{
+        if(idx===0) ctx.moveTo(p[0],p[1]);
+        else ctx.lineTo(p[0],p[1]);
+    });
+    ctx.stroke();
+}
+
+slider.addEventListener("input", draw);
+draw();
+</script>
+</body>
+</html>
