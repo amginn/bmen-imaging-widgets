@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Two Dots + PSF Demo</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 18px;
+    color: #222;
+    line-height: 1.35;
+  }
+  h1 {
+    font-size: 1.35rem;
+    margin: 0 0 0.3rem 0;
+  }
+  p {
+    max-width: 980px;
+  }
+  .controls {
+    max-width: 980px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(260px, 1fr));
+    gap: 12px;
+    padding: 12px;
+    margin: 12px 0;
+    border: 1px solid #d5d5d5;
+    border-radius: 10px;
+    background: #f7f7f7;
+  }
+  .control {
+    display: grid;
+    grid-template-columns: 145px 1fr 60px;
+    align-items: center;
+    gap: 8px;
+  }
+  label {
+    font-weight: 700;
+  }
+  output {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    max-width: 980px;
+    height: auto;
+    border: 1px solid #d5d5d5;
+    border-radius: 10px;
+    background: white;
+  }
+  .status {
+    max-width: 980px;
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-left: 4px solid #666;
+    background: #fafafa;
+    font-weight: 700;
+  }
+  .caption {
+    max-width: 980px;
+    margin-top: 8px;
+    color: #555;
+    font-size: 0.94rem;
+  }
+</style>
+</head>
+
+<body>
+<h1>Two Point Objects + PSF = Blurred Image</h1>
+
+<p>
+  The point spread function (PSF) describes how an imaging system represents an ideal point object.
+  A narrow PSF keeps the two dots separated. A wider PSF spreads signal into neighboring locations,
+  so nearby dots blur together.
+</p>
+
+<div class="controls" aria-label="Interactive PSF controls">
+  <div class="control">
+    <label for="spacing">Dot spacing</label>
+    <input id="spacing" type="range" min="20" max="180" step="2" value="100">
+    <output id="spacingOut">100</output>
+  </div>
+
+  <div class="control">
+    <label for="psfWidth">PSF width</label>
+    <input id="psfWidth" type="range" min="4" max="44" step="1" value="12">
+    <output id="psfWidthOut">12</output>
+  </div>
+
+  <div class="control">
+    <label for="brightness">Dot brightness</label>
+    <input id="brightness" type="range" min="0.25" max="1.0" step="0.05" value="0.85">
+    <output id="brightnessOut">0.85</output>
+  </div>
+
+  <div class="control">
+    <label for="noise">Noise</label>
+    <input id="noise" type="range" min="0" max="0.25" step="0.01" value="0.00">
+    <output id="noiseOut">0.00</output>
+  </div>
+</div>
+
+<div class="status" id="statusText" aria-live="polite"></div>
+
+<canvas id="canvas" width="980" height="560" aria-label="Interactive PSF demonstration showing two point objects becoming blurred"></canvas>
+
+<p class="caption">
+  Top: ideal object with two point sources. Middle: each point is spread into a PSF.
+  Bottom: the observed image is the sum of the two PSFs. Right: simulated image view.
+</p>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const spacingSlider = document.getElementById("spacing");
+const psfSlider = document.getElementById("psfWidth");
+const brightnessSlider = document.getElementById("brightness");
+const noiseSlider = document.getElementById("noise");
+
+const spacingOut = document.getElementById("spacingOut");
+const psfOut = document.getElementById("psfWidthOut");
+const brightnessOut = document.getElementById("brightnessOut");
+const noiseOut = document.getElementById("noiseOut");
+const statusText = document.getElementById("statusText");
+
+function gaussian(x, mu, sigma) {
+  return Math.exp(-0.5 * Math.pow((x - mu) / sigma, 2));
+}
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function drawTitle(text, x, y) {
+  ctx.fillStyle = "#111";
+  ctx.font = "bold 18px Arial";
+  ctx.fillText(text, x, y);
+}
+
+function drawAxes(x0, y0, w, h, yLabel) {
+  ctx.strokeStyle = "#999";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x0, y0 + h);
+  ctx.lineTo(x0 + w, y0 + h);
+  ctx.stroke();
+
+  ctx.fillStyle = "#555";
+  ctx.font = "13px Arial";
+  ctx.fillText("position", x0 + w - 55, y0 + h + 24);
+
+  ctx.save();
+  ctx.translate(x0 - 28, y0 + 40);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(yLabel, 0, 0);
+  ctx.restore();
+}
+
+function drawObjectPanel(x0, y0, w, h, spacing, brightness) {
+  drawAxes(x0, y0, w, h, "object");
+  const center = x0 + w / 2;
+  const xs = [center - spacing / 2, center + spacing / 2];
+  const base = y0 + h;
+  const top = y0 + 30;
+
+  ctx.strokeStyle = "#222";
+  ctx.lineWidth = 3;
+
+  xs.forEach(x => {
+    ctx.beginPath();
+    ctx.moveTo(x, base);
+    ctx.lineTo(x, top);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(0,0,0," + brightness + ")";
+    ctx.beginPath();
+    ctx.arc(x, top, 7, 0, 2 * Math.PI);
+    ctx.fill();
+  });
+}
+
+function drawPSFPanel(x0, y0, w, h, spacing, sigma, brightness) {
+  drawAxes(x0, y0, w, h, "PSF");
+  const center = x0 + w / 2;
+  const xs = [center - spacing / 2, center + spacing / 2];
+  const base = y0 + h;
+  const scale = h * 0.82;
+
+  ctx.strokeStyle = "#555";
+  ctx.lineWidth = 2;
+
+  xs.forEach(mu => {
+    ctx.beginPath();
+    for (let i = 0; i <= w; i++) {
+      const x = x0 + i;
+      const val = brightness * gaussian(x, mu, sigma);
+      const y = base - scale * val;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+}
+
+function drawImageProfile(x0, y0, w, h, spacing, sigma, brightness, noise) {
+  drawAxes(x0, y0, w, h, "image");
+  const center = x0 + w / 2;
+  const x1 = center - spacing / 2;
+  const x2 = center + spacing / 2;
+  const base = y0 + h;
+  const scale = h * 0.75;
+
+  const vals = [];
+  let maxVal = 0;
+
+  for (let i = 0; i <= w; i++) {
+    const x = x0 + i;
+    const val = brightness * (gaussian(x, x1, sigma) + gaussian(x, x2, sigma));
+    vals.push(val);
+    if (val > maxVal) maxVal = val;
+  }
+
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+
+  for (let i = 0; i <= w; i++) {
+    let val = vals[i] / Math.max(maxVal, 1e-6);
+    val += (Math.random() - 0.5) * noise;
+    val = clamp(val, 0, 1.1);
+    const x = x0 + i;
+    const y = base - scale * val;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+
+  ctx.stroke();
+
+  const midVal = brightness * (gaussian(center, x1, sigma) + gaussian(center, x2, sigma));
+  const valley = midVal / Math.max(maxVal, 1e-6);
+
+  ctx.strokeStyle = "#777";
+  ctx.setLineDash([5, 5]);
+  ctx.beginPath();
+  ctx.moveTo(center, base);
+  ctx.lineTo(center, base - scale * valley);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  ctx.fillStyle = "#555";
+  ctx.font = "13px Arial";
+  ctx.fillText("dashed line = valley between peaks", x0 + 10, y0 + h + 43);
+
+  return valley;
+}
+
+function draw2DImage(x0, y0, size, spacing, sigma, brightness, noise) {
+  drawTitle("Simulated image", x0, y0 - 16);
+
+  const img = ctx.createImageData(size, size);
+  const c = size / 2;
+  const x1 = c - spacing / 2;
+  const x2 = c + spacing / 2;
+  const raw = [];
+  let maxVal = 0;
+
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const r1 = Math.pow(x - x1, 2) + Math.pow(y - c, 2);
+      const r2 = Math.pow(x - x2, 2) + Math.pow(y - c, 2);
+      const val = brightness * (Math.exp(-r1 / (2 * sigma * sigma)) + Math.exp(-r2 / (2 * sigma * sigma)));
+      raw.push(val);
+      if (val > maxVal) maxVal = val;
+    }
+  }
+
+  for (let i = 0; i < raw.length; i++) {
+    let val = raw[i] / Math.max(maxVal, 1e-6);
+    val += (Math.random() - 0.5) * noise;
+    val = clamp(val, 0, 1);
+    const p = Math.round(255 * val);
+    img.data[4*i] = p;
+    img.data[4*i + 1] = p;
+    img.data[4*i + 2] = p;
+    img.data[4*i + 3] = 255;
+  }
+
+  ctx.putImageData(img, x0, y0);
+  ctx.strokeStyle = "#aaa";
+  ctx.strokeRect(x0, y0, size, size);
+}
+
+function drawGuide(x0, y0, spacing, sigma) {
+  const ratio = spacing / sigma;
+  drawTitle("Resolution guide", x0, y0);
+
+  ctx.fillStyle = "#555";
+  ctx.font = "15px Arial";
+  ctx.fillText("spacing / PSF width = " + ratio.toFixed(2), x0, y0 + 30);
+
+  const barX = x0;
+  const barY = y0 + 50;
+  const barW = 230;
+  const barH = 18;
+
+  ctx.strokeStyle = "#aaa";
+  ctx.strokeRect(barX, barY, barW, barH);
+
+  const fill = clamp((ratio - 1) / 6, 0, 1);
+  ctx.fillStyle = "#ddd";
+  ctx.fillRect(barX, barY, barW, barH);
+  ctx.fillStyle = "#555";
+  ctx.fillRect(barX, barY, barW * fill, barH);
+
+  ctx.fillStyle = "#555";
+  ctx.font = "13px Arial";
+  ctx.fillText("more overlap", barX, barY + 40);
+  ctx.fillText("more resolved", barX + barW - 92, barY + 40);
+}
+
+function update() {
+  const spacing = Number(spacingSlider.value);
+  const sigma = Number(psfSlider.value);
+  const brightness = Number(brightnessSlider.value);
+  const noise = Number(noiseSlider.value);
+
+  spacingOut.textContent = spacing.toFixed(0);
+  psfOut.textContent = sigma.toFixed(0);
+  brightnessOut.textContent = brightness.toFixed(2);
+  noiseOut.textContent = noise.toFixed(2);
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  drawTitle("1. Object: two ideal point sources", 50, 35);
+  drawObjectPanel(60, 60, 570, 90, spacing, brightness);
+
+  drawTitle("2. PSF: each point becomes a blur kernel", 50, 215);
+  drawPSFPanel(60, 240, 570, 90, spacing, sigma, brightness);
+
+  drawTitle("3. Image: the two blurred responses add together", 50, 395);
+  const valley = drawImageProfile(60, 420, 570, 80, spacing, sigma, brightness, noise);
+
+  draw2DImage(725, 80, 180, spacing * 0.72, sigma * 0.72, brightness, noise);
+  drawGuide(690, 330, spacing, sigma);
+
+  const ratio = spacing / sigma;
+  let msg = "";
+  if (ratio > 5) {
+    msg = "Clearly resolved: the two image peaks are well separated.";
+  } else if (ratio > 3) {
+    msg = "Mostly resolved: the two peaks are distinguishable, but the PSFs overlap.";
+  } else if (ratio > 2) {
+    msg = "Borderline resolution: the valley between the peaks is shallow.";
+  } else {
+    msg = "Poorly resolved: the PSFs overlap strongly, so the two dots blur together.";
+  }
+
+  statusText.textContent = msg;
+}
+
+[spacingSlider, psfSlider, brightnessSlider, noiseSlider].forEach(slider => {
+  slider.addEventListener("input", update);
+});
+
+update();
+</script>
+</body>
+</html>
