@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Line Pairs, Lens Blur, and Contrast</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    margin: 18px;
+    color: #222;
+    line-height: 1.35;
+  }
+  h1 {
+    font-size: 1.35rem;
+    margin: 0 0 0.3rem 0;
+  }
+  p {
+    max-width: 1080px;
+  }
+  .controls {
+    max-width: 1080px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+    gap: 12px;
+    padding: 12px;
+    margin: 12px 0;
+    border: 1px solid #d5d5d5;
+    border-radius: 10px;
+    background: #f7f7f7;
+  }
+  .control {
+    display: grid;
+    grid-template-columns: 165px 1fr 70px;
+    align-items: center;
+    gap: 8px;
+  }
+  label { font-weight: 700; }
+  output {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    max-width: 1080px;
+    height: auto;
+    border: 1px solid #d5d5d5;
+    border-radius: 10px;
+    background: white;
+  }
+  .status {
+    max-width: 1080px;
+    margin: 10px 0;
+    padding: 10px 12px;
+    border-left: 4px solid #666;
+    background: #fafafa;
+    font-weight: 700;
+  }
+  .caption {
+    max-width: 1080px;
+    margin-top: 8px;
+    color: #555;
+    font-size: 0.94rem;
+  }
+</style>
+</head>
+
+<body>
+<h1>Line Pairs + Lens Blur = Reduced Contrast</h1>
+
+<p>
+  A line-pair object can be represented as a square wave: bright, dark, bright, dark.
+  After passing through a lens or imaging system, sharp edges become blurred. The image profile becomes smoother,
+  more like a sine wave, and the contrast decreases. Higher spatial frequencies are affected more strongly.
+</p>
+
+<div class="controls" aria-label="Interactive line pair controls">
+  <div class="control">
+    <label for="frequency">Line-pair frequency</label>
+    <input id="frequency" type="range" min="2" max="18" step="1" value="6">
+    <output id="frequencyOut">6</output>
+  </div>
+
+  <div class="control">
+    <label for="blur">Lens blur / PSF width</label>
+    <input id="blur" type="range" min="0" max="24" step="1" value="8">
+    <output id="blurOut">8</output>
+  </div>
+
+  <div class="control">
+    <label for="whiteLevel">White level</label>
+    <input id="whiteLevel" type="range" min="0.55" max="1.0" step="0.01" value="0.95">
+    <output id="whiteLevelOut">0.95</output>
+  </div>
+
+  <div class="control">
+    <label for="blackLevel">Black level</label>
+    <input id="blackLevel" type="range" min="0.0" max="0.45" step="0.01" value="0.05">
+    <output id="blackLevelOut">0.05</output>
+  </div>
+
+  <div class="control">
+    <label for="pixelSize">Image pixel size</label>
+    <input id="pixelSize" type="range" min="1" max="18" step="1" value="4">
+    <output id="pixelSizeOut">4</output>
+  </div>
+
+  <div class="control">
+    <label for="noise">Noise</label>
+    <input id="noise" type="range" min="0" max="0.15" step="0.01" value="0.00">
+    <output id="noiseOut">0.00</output>
+  </div>
+</div>
+
+<div class="status" id="statusText" aria-live="polite"></div>
+
+<canvas id="canvas" width="1080" height="700" aria-label="Interactive line pair blur and contrast demonstration"></canvas>
+
+<p class="caption">
+  The object starts as an ideal black/white line-pair pattern. The lens blurs the object, reducing the modulation between
+  bright and dark regions. The graph below each image shows the corresponding intensity profile.
+</p>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+const frequencySlider = document.getElementById("frequency");
+const blurSlider = document.getElementById("blur");
+const whiteSlider = document.getElementById("whiteLevel");
+const blackSlider = document.getElementById("blackLevel");
+const pixelSlider = document.getElementById("pixelSize");
+const noiseSlider = document.getElementById("noise");
+
+const frequencyOut = document.getElementById("frequencyOut");
+const blurOut = document.getElementById("blurOut");
+const whiteOut = document.getElementById("whiteLevelOut");
+const blackOut = document.getElementById("blackLevelOut");
+const pixelOut = document.getElementById("pixelSizeOut");
+const noiseOut = document.getElementById("noiseOut");
+const statusText = document.getElementById("statusText");
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
+function gray(v) {
+  const p = Math.round(255 * clamp(v, 0, 1));
+  return "rgb(" + p + "," + p + "," + p + ")";
+}
+
+function title(text, x, y) {
+  ctx.fillStyle = "#111";
+  ctx.font = "bold 19px Arial";
+  ctx.fillText(text, x, y);
+}
+
+function text(text, x, y, size=14) {
+  ctx.fillStyle = "#555";
+  ctx.font = size + "px Arial";
+  ctx.fillText(text, x, y);
+}
+
+function squareValue(x, freq, white, black) {
+  const phase = (x * freq) % 1;
+  return phase < 0.5 ? white : black;
+}
+
+function makeObjectProfile(n, freq, white, black) {
+  const arr = [];
+  for (let i = 0; i < n; i++) {
+    arr.push(squareValue(i / n, freq, white, black));
+  }
+  return arr;
+}
+
+function gaussianKernel(sigma) {
+  if (sigma <= 0) return [1];
+  const radius = Math.ceil(sigma * 3);
+  const kernel = [];
+  let sum = 0;
+  for (let i = -radius; i <= radius; i++) {
+    const v = Math.exp(-0.5 * (i / sigma) * (i / sigma));
+    kernel.push(v);
+    sum += v;
+  }
+  return kernel.map(v => v / sum);
+}
+
+function circularConvolve(signal, kernel) {
+  const n = signal.length;
+  const radius = Math.floor(kernel.length / 2);
+  const out = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    let sum = 0;
+    for (let k = 0; k < kernel.length; k++) {
+      let idx = (i + k - radius) % n;
+      if (idx < 0) idx += n;
+      sum += signal[idx] * kernel[k];
+    }
+    out[i] = sum;
+  }
+  return out;
+}
+
+function pixelate(signal, pixelSize) {
+  if (pixelSize <= 1) return signal.slice();
+  const n = signal.length;
+  const out = new Array(n);
+  for (let i = 0; i < n; i += pixelSize) {
+    let sum = 0;
+    let count = 0;
+    for (let j = i; j < Math.min(i + pixelSize, n); j++) {
+      sum += signal[j];
+      count++;
+    }
+    const avg = sum / count;
+    for (let j = i; j < Math.min(i + pixelSize, n); j++) {
+      out[j] = avg;
+    }
+  }
+  return out;
+}
+
+function addNoise(signal, amount) {
+  return signal.map(v => clamp(v + (Math.random() - 0.5) * amount, 0, 1));
+}
+
+function drawPattern(x0, y0, w, h, profile, pixelBlock=false) {
+  const n = profile.length;
+  for (let i = 0; i < w; i++) {
+    const idx = Math.floor((i / w) * n);
+    ctx.fillStyle = gray(profile[idx]);
+    ctx.fillRect(x0 + i, y0, 1, h);
+  }
+  ctx.strokeStyle = "#999";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x0, y0, w, h);
+}
+
+function drawProfileGraph(x0, y0, w, h, profile, kindLabel) {
+  ctx.strokeStyle = "#aaa";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x0, y0);
+  ctx.lineTo(x0, y0 + h);
+  ctx.lineTo(x0 + w, y0 + h);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#111";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (let i = 0; i < w; i++) {
+    const idx = Math.floor((i / w) * profile.length);
+    const y = y0 + h - profile[idx] * h;
+    if (i === 0) ctx.moveTo(x0 + i, y);
+    else ctx.lineTo(x0 + i, y);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = "#555";
+  ctx.font = "13px Arial";
+  ctx.fillText(kindLabel, x0 + 8, y0 + h + 24);
+  ctx.fillText("black", x0 - 38, y0 + h + 4);
+  ctx.fillText("white", x0 - 38, y0 + 5);
+}
+
+function drawLens(cx, cy) {
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 25, cy - 65);
+  ctx.bezierCurveTo(cx + 18, cy - 45, cx + 18, cy + 45, cx - 25, cy + 65);
+  ctx.bezierCurveTo(cx - 52, cy + 45, cx - 52, cy - 45, cx - 25, cy - 65);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(120, 180, 220, 0.22)";
+  ctx.fill();
+
+  ctx.strokeStyle = "#777";
+  ctx.beginPath();
+  ctx.moveTo(cx - 95, cy);
+  ctx.lineTo(cx - 55, cy);
+  ctx.moveTo(cx + 25, cy);
+  ctx.lineTo(cx + 95, cy);
+  ctx.stroke();
+
+  ctx.fillStyle = "#555";
+  ctx.font = "14px Arial";
+  ctx.fillText("Lens / PSF", cx - 50, cy + 92);
+}
+
+function drawArrow(x1, y1, x2, y2) {
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  const angle = Math.atan2(y2-y1, x2-x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(x2 - 10*Math.cos(angle - Math.PI/6), y2 - 10*Math.sin(angle - Math.PI/6));
+  ctx.lineTo(x2 - 10*Math.cos(angle + Math.PI/6), y2 - 10*Math.sin(angle + Math.PI/6));
+  ctx.closePath();
+  ctx.fillStyle = "#777";
+  ctx.fill();
+}
+
+function contrastMetric(profile) {
+  let imax = -Infinity;
+  let imin = Infinity;
+  profile.forEach(v => {
+    if (v > imax) imax = v;
+    if (v < imin) imin = v;
+  });
+  const contrast = (imax - imin) / Math.max(imax + imin, 1e-9);
+  return {imax, imin, contrast};
+}
+
+function drawPixelIntensityBar(x0, y0, w, h, imageProfile, pixelSize) {
+  title("Image pixels", x0, y0 - 14);
+
+  const nPixels = Math.max(8, Math.floor(w / Math.max(pixelSize * 2, 8)));
+  const cellW = w / nPixels;
+
+  for (let p = 0; p < nPixels; p++) {
+    const start = Math.floor((p / nPixels) * imageProfile.length);
+    const end = Math.floor(((p + 1) / nPixels) * imageProfile.length);
+    let sum = 0;
+    let count = 0;
+    for (let i = start; i < Math.max(end, start + 1); i++) {
+      sum += imageProfile[i % imageProfile.length];
+      count++;
+    }
+    const avg = sum / count;
+    ctx.fillStyle = gray(avg);
+    ctx.fillRect(x0 + p * cellW, y0, cellW, h);
+    ctx.strokeStyle = "#777";
+    ctx.strokeRect(x0 + p * cellW, y0, cellW, h);
+  }
+
+  text("Each pixel stores an average intensity.", x0, y0 + h + 24, 13);
+}
+
+function update() {
+  const freq = Number(frequencySlider.value);
+  const blur = Number(blurSlider.value);
+  const white = Number(whiteSlider.value);
+  const black = Number(blackSlider.value);
+  const pixelSize = Number(pixelSlider.value);
+  const noise = Number(noiseSlider.value);
+
+  frequencyOut.textContent = freq.toFixed(0);
+  blurOut.textContent = blur.toFixed(0);
+  whiteOut.textContent = white.toFixed(2);
+  blackOut.textContent = black.toFixed(2);
+  pixelOut.textContent = pixelSize.toFixed(0);
+  noiseOut.textContent = noise.toFixed(2);
+
+  const n = 900;
+  const objectProfile = makeObjectProfile(n, freq, white, black);
+  const kernel = gaussianKernel(blur);
+  let imageProfile = circularConvolve(objectProfile, kernel);
+  imageProfile = pixelate(imageProfile, pixelSize);
+  imageProfile = addNoise(imageProfile, noise);
+
+  const objContrast = contrastMetric(objectProfile);
+  const imgContrast = contrastMetric(imageProfile);
+  const contrastPercent = imgContrast.contrast * 100;
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const objX = 55, lensX = 515, imgX = 690;
+  const topY = 82, patternW = 330, patternH = 115;
+  const graphY = 250, graphH = 115;
+
+  title("Object", objX, 45);
+  drawPattern(objX, topY, patternW, patternH, objectProfile);
+  drawProfileGraph(objX, graphY, patternW, graphH, objectProfile, "Object profile: square wave");
+
+  drawArrow(objX + patternW + 20, topY + 58, lensX - 70, topY + 58);
+  drawLens(lensX, topY + 58);
+  drawArrow(lensX + 62, topY + 58, imgX - 30, topY + 58);
+
+  title("Image", imgX, 45);
+  drawPattern(imgX, topY, patternW, patternH, imageProfile);
+  drawProfileGraph(imgX, graphY, patternW, graphH, imageProfile, "Image profile: smoothed wave");
+
+  drawPixelIntensityBar(55, 500, 360, 48, imageProfile, pixelSize);
+
+  title("Contrast", 515, 490);
+  ctx.font = "18px Arial";
+  ctx.fillStyle = "#222";
+  ctx.fillText("% Contrast = (Imax - Imin) / (Imax + Imin)", 515, 525);
+  ctx.font = "16px Arial";
+  ctx.fillText("Object contrast: " + (objContrast.contrast * 100).toFixed(1) + "%", 515, 560);
+  ctx.fillText("Image contrast: " + contrastPercent.toFixed(1) + "%", 515, 590);
+  ctx.fillText("Imax = " + imgContrast.imax.toFixed(2) + "    Imin = " + imgContrast.imin.toFixed(2), 515, 620);
+
+  title("Key takeaway", 55, 635);
+  ctx.font = "15px Arial";
+  ctx.fillStyle = "#555";
+  ctx.fillText("Higher frequency line pairs and wider PSFs produce more gray blending and lower image contrast.", 55, 662);
+
+  let msg;
+  if (contrastPercent > 70) {
+    msg = "High image contrast: the line pairs are easy to distinguish.";
+  } else if (contrastPercent > 35) {
+    msg = "Moderate image contrast: the line pairs are visible, but edge sharpness is reduced.";
+  } else if (contrastPercent > 15) {
+    msg = "Low image contrast: bright and dark lines are blending together.";
+  } else {
+    msg = "Very low image contrast: the line pairs are nearly washed out.";
+  }
+
+  statusText.textContent = msg;
+}
+
+[frequencySlider, blurSlider, whiteSlider, blackSlider, pixelSlider, noiseSlider].forEach(slider => {
+  slider.addEventListener("input", update);
+});
+
+update();
+</script>
+</body>
+</html>
