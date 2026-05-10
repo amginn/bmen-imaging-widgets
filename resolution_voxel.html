@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>DICOM Voxel Resolution Explorer</title>
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    max-width: 1050px;
+    margin: auto;
+    padding: 20px;
+    color: #222;
+  }
+
+  h2 { margin-bottom: 6px; }
+
+  .subtitle {
+    color: #555;
+    margin-bottom: 18px;
+  }
+
+  .controls {
+    display: grid;
+    grid-template-columns: 170px 1fr 95px;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 20px;
+  }
+
+  .output {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 22px;
+  }
+
+  .box {
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    background: #fafafa;
+    padding: 12px;
+  }
+
+  .label {
+    font-weight: bold;
+    margin-bottom: 6px;
+  }
+
+  .value {
+    font-size: 1.15rem;
+    font-weight: bold;
+  }
+
+  .blue { color: #0645ad; }
+  .red { color: #b00000; }
+  .green { color: #0b6b2b; }
+
+  canvas {
+    width: 100%;
+    border: 1px solid #ccc;
+    background: white;
+    display: block;
+  }
+
+  .takeaway {
+    margin-top: 16px;
+    padding: 12px;
+    background: #f2f2f2;
+    border-left: 4px solid #777;
+    font-size: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<h2>DICOM Voxel Resolution Explorer</h2>
+<div class="subtitle">
+  Shape tells you how many samples. Spacing tells you how big each voxel is.
+</div>
+
+<div class="controls">
+  <label>Slices</label>
+  <input type="range" id="slices" min="1" max="120" step="1" value="39">
+  <span id="slicesValue"></span>
+
+  <label>Rows</label>
+  <input type="range" id="rows" min="64" max="1024" step="64" value="832">
+  <span id="rowsValue"></span>
+
+  <label>Columns</label>
+  <input type="range" id="cols" min="64" max="1024" step="64" value="704">
+  <span id="colsValue"></span>
+
+  <label>Slice spacing</label>
+  <input type="range" id="sliceSpacing" min="0.5" max="8" step="0.1" value="4.0">
+  <span id="sliceSpacingValue"></span>
+
+  <label>Row spacing</label>
+  <input type="range" id="rowSpacing" min="0.2" max="2.0" step="0.05" value="0.40">
+  <span id="rowSpacingValue"></span>
+
+  <label>Column spacing</label>
+  <input type="range" id="colSpacing" min="0.2" max="2.0" step="0.05" value="0.25">
+  <span id="colSpacingValue"></span>
+</div>
+
+<div class="output">
+  <div class="box">
+    <div class="label blue">Shape</div>
+    <div id="shapeOut" class="value"></div>
+  </div>
+
+  <div class="box">
+    <div class="label red">Spacing</div>
+    <div id="spacingOut" class="value"></div>
+  </div>
+
+  <div class="box">
+    <div class="label green">Voxel Resolution</div>
+    <div id="voxelOut" class="value"></div>
+  </div>
+</div>
+
+<canvas id="mainCanvas" width="1040" height="500"></canvas>
+
+<div class="takeaway">
+  <strong>Key idea:</strong> voxel resolution is the physical size of one voxel:
+  <strong>slice spacing × row spacing × column spacing</strong>.
+</div>
+
+<script>
+const ids = ["slices", "rows", "cols", "sliceSpacing", "rowSpacing", "colSpacing"];
+const canvas = document.getElementById("mainCanvas");
+const ctx = canvas.getContext("2d");
+
+function fmt(v, d=1) {
+  return v.toFixed(d);
+}
+
+function getVals() {
+  return {
+    slices: parseInt(document.getElementById("slices").value),
+    rows: parseInt(document.getElementById("rows").value),
+    cols: parseInt(document.getElementById("cols").value),
+    sliceSpacing: parseFloat(document.getElementById("sliceSpacing").value),
+    rowSpacing: parseFloat(document.getElementById("rowSpacing").value),
+    colSpacing: parseFloat(document.getElementById("colSpacing").value)
+  };
+}
+
+function drawArrowHead(x, y, angle, color) {
+  const head = 8;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - head * Math.cos(angle - Math.PI / 6), y - head * Math.sin(angle - Math.PI / 6));
+  ctx.lineTo(x - head * Math.cos(angle + Math.PI / 6), y - head * Math.sin(angle + Math.PI / 6));
+  ctx.closePath();
+  ctx.fill();
+}
+
+function singleArrow(x1, y1, x2, y2, color) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  drawArrowHead(x2, y2, angle, color);
+}
+
+function doubleArrow(x1, y1, x2, y2, color) {
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  drawArrowHead(x2, y2, angle, color);
+  drawArrowHead(x1, y1, angle + Math.PI, color);
+}
+
+function drawSliceGrid(v) {
+  const gx = 70;
+  const gy = 80;
+  const gw = 330;
+  const gh = 255;
+
+  ctx.fillStyle = "#fafafa";
+  ctx.fillRect(gx, gy, gw, gh);
+  ctx.strokeStyle = "#333";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(gx, gy, gw, gh);
+
+  const colLines = Math.min(12, Math.max(4, Math.round(v.cols / 64)));
+  const rowLines = Math.min(12, Math.max(4, Math.round(v.rows / 64)));
+
+  ctx.strokeStyle = "#ddd";
+  ctx.lineWidth = 1;
+
+  for (let i = 1; i < colLines; i++) {
+    const x = gx + i * gw / colLines;
+    ctx.beginPath();
+    ctx.moveTo(x, gy);
+    ctx.lineTo(x, gy + gh);
+    ctx.stroke();
+  }
+
+  for (let i = 1; i < rowLines; i++) {
+    const y = gy + i * gh / rowLines;
+    ctx.beginPath();
+    ctx.moveTo(gx, y);
+    ctx.lineTo(gx + gw, y);
+    ctx.stroke();
+  }
+
+  ctx.font = "18px Arial";
+  ctx.fillStyle = "#222";
+  ctx.fillText("One slice", gx, 42);
+
+  singleArrow(gx, gy + gh + 35, gx + gw, gy + gh + 35, "#0645ad");
+  ctx.fillStyle = "#0645ad";
+  ctx.font = "15px Arial";
+  ctx.fillText("columns = " + v.cols, gx + 112, gy + gh + 62);
+
+  singleArrow(gx - 35, gy, gx - 35, gy + gh, "#b00000");
+  ctx.fillStyle = "#b00000";
+  ctx.save();
+  ctx.translate(gx - 55, gy + 158);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText("rows = " + v.rows, 0, 0);
+  ctx.restore();
+
+  return { gx, gy, gw, gh };
+}
+
+function drawPixelCallout(v) {
+  const px = 500;
+  const py = 78;
+  const ps = 60;
+
+  ctx.fillStyle = "#f3f3f3";
+  ctx.fillRect(px, py, ps, ps);
+  ctx.strokeStyle = "#777";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(px, py, ps, ps);
+
+  ctx.fillStyle = "#222";
+  ctx.font = "16px Arial";
+  ctx.fillText("1 pixel", px + 4, py + ps + 25);
+
+  doubleArrow(px, py - 22, px + ps, py - 22, "#0645ad");
+  ctx.fillStyle = "#0645ad";
+  ctx.font = "14px Arial";
+  ctx.fillText(fmt(v.colSpacing, 2) + " mm", px + 3, py - 34);
+
+  doubleArrow(px + ps + 24, py, px + ps + 24, py + ps, "#b00000");
+  ctx.fillStyle = "#b00000";
+  ctx.fillText(fmt(v.rowSpacing, 2) + " mm", px + ps + 34, py + 35);
+}
+
+function drawCleanVoxel(v) {
+  // Clean voxel diagram positioned far right, separated from slice grid.
+  const x = 610;
+  const y = 335;
+  const w = 170;
+  const h = 120;
+  const dx = 72;
+  const dy = -72;
+
+  const A = { x: x, y: y };          // front bottom left
+  const B = { x: x + w, y: y };      // front bottom right
+  const C = { x: x + w, y: y - h };  // front top right
+  const D = { x: x, y: y - h };      // front top left
+
+  const A2 = { x: A.x + dx, y: A.y + dy };
+  const B2 = { x: B.x + dx, y: B.y + dy };
+  const C2 = { x: C.x + dx, y: C.y + dy };
+  const D2 = { x: D.x + dx, y: D.y + dy };
+
+  // Top face
+  ctx.fillStyle = "#eeeeee";
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(D.x, D.y);
+  ctx.lineTo(D2.x, D2.y);
+  ctx.lineTo(C2.x, C2.y);
+  ctx.lineTo(C.x, C.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Right face
+  ctx.fillStyle = "#f4f4f4";
+  ctx.beginPath();
+  ctx.moveTo(B.x, B.y);
+  ctx.lineTo(B2.x, B2.y);
+  ctx.lineTo(C2.x, C2.y);
+  ctx.lineTo(C.x, C.y);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  // Front face, emphasized
+  ctx.fillStyle = "#ffffff";
+  ctx.strokeStyle = "#000";
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.rect(A.x, D.y, w, h);
+  ctx.fill();
+  ctx.stroke();
+
+  // Only exterior depth edges. No internal random lines.
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(A.x, A.y);
+  ctx.lineTo(A2.x, A2.y);
+  ctx.moveTo(D.x, D.y);
+  ctx.lineTo(D2.x, D2.y);
+  ctx.moveTo(C.x, C.y);
+  ctx.lineTo(C2.x, C2.y);
+  ctx.moveTo(B.x, B.y);
+  ctx.lineTo(B2.x, B2.y);
+  ctx.stroke();
+
+  // "1 voxel" centered under front face
+  ctx.fillStyle = "#111";
+  ctx.font = "18px Arial";
+  ctx.fillText("1 voxel", A.x + w / 2 - 34, A.y + 32);
+
+  // Column spacing: below front face, centered
+  const blueY = A.y + 48;
+  doubleArrow(A.x, blueY, B.x, blueY, "#0645ad");
+  ctx.fillStyle = "#0645ad";
+  ctx.font = "16px Arial";
+  ctx.fillText("column spacing", A.x + 32, blueY + 28);
+  ctx.fillText(fmt(v.colSpacing, 2) + " mm", A.x + 63, blueY + 51);
+
+  // Row spacing: immediately left of voxel, not near slice grid
+  const redX = A.x - 42;
+  doubleArrow(redX, A.y, redX, D.y, "#b00000");
+  ctx.fillStyle = "#b00000";
+  ctx.font = "16px Arial";
+  ctx.fillText("row spacing", redX - 100, D.y + 48);
+  ctx.fillText(fmt(v.rowSpacing, 2) + " mm", redX - 88, D.y + 72);
+
+  // Slice spacing: along right depth direction, label to right
+  const greenStart = { x: B.x + 22, y: B.y - 8 };
+  const greenEnd = { x: B2.x + 22, y: B2.y - 8 };
+  doubleArrow(greenStart.x, greenStart.y, greenEnd.x, greenEnd.y, "#0b6b2b");
+
+  ctx.fillStyle = "#0b6b2b";
+  ctx.font = "16px Arial";
+  ctx.fillText("slice spacing", B.x + 100, B.y - 48);
+  ctx.fillText(fmt(v.sliceSpacing, 1) + " mm", B.x + 122, B.y - 24);
+}
+
+function draw(v) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawSliceGrid(v);
+  drawPixelCallout(v);
+  drawCleanVoxel(v);
+}
+
+function update() {
+  const v = getVals();
+
+  document.getElementById("slicesValue").innerText = v.slices;
+  document.getElementById("rowsValue").innerText = v.rows;
+  document.getElementById("colsValue").innerText = v.cols;
+  document.getElementById("sliceSpacingValue").innerText = fmt(v.sliceSpacing, 1) + " mm";
+  document.getElementById("rowSpacingValue").innerText = fmt(v.rowSpacing, 2) + " mm";
+  document.getElementById("colSpacingValue").innerText = fmt(v.colSpacing, 2) + " mm";
+
+  document.getElementById("shapeOut").innerText =
+    "(" + v.slices + ", " + v.rows + ", " + v.cols + ")";
+
+  document.getElementById("spacingOut").innerText =
+    "(" + fmt(v.sliceSpacing, 1) + ", " + fmt(v.rowSpacing, 2) + ", " + fmt(v.colSpacing, 2) + ") mm";
+
+  document.getElementById("voxelOut").innerText =
+    fmt(v.sliceSpacing, 1) + " × " + fmt(v.rowSpacing, 2) + " × " + fmt(v.colSpacing, 2) + " mm";
+
+  draw(v);
+}
+
+ids.forEach(id => document.getElementById(id).addEventListener("input", update));
+update();
+</script>
+
+</body>
+</html>
