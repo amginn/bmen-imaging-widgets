@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Longitudinal vs. Transverse Waves</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --muted: #5b6472;
+      --line: #d7dce5;
+      --accent: #335c81;
+      --accent2: #7a4e9d;
+      --soft: #eef3f8;
+      --warn: #fff7df;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.45;
+    }
+
+    header {
+      padding: 28px 20px 14px;
+      text-align: center;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(1.8rem, 3vw, 2.6rem);
+    }
+
+    .subtitle {
+      margin: 0 auto;
+      max-width: 850px;
+      color: var(--muted);
+      font-size: 1.04rem;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 12px 18px 34px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    @media (max-width: 850px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 8px 24px rgba(31, 41, 55, 0.06);
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 1.45rem;
+    }
+
+    .tagline {
+      color: var(--muted);
+      margin: 0 0 14px;
+    }
+
+    .stage {
+      position: relative;
+      width: 100%;
+      min-height: 270px;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #ffffff, var(--soft));
+      border: 1px solid #e1e6ef;
+      overflow: hidden;
+      padding: 14px;
+    }
+
+    .icon-row {
+      display: grid;
+      grid-template-columns: 92px 1fr 92px;
+      align-items: center;
+      gap: 8px;
+      height: 100%;
+      min-height: 238px;
+    }
+
+    .icon-block {
+      text-align: center;
+      z-index: 4;
+    }
+
+    .icon {
+      width: 76px;
+      height: 76px;
+      margin: 0 auto 7px;
+      border-radius: 18px;
+      background: #fff;
+      border: 2px solid #d5dce8;
+      display: grid;
+      place-items: center;
+      font-size: 38px;
+      box-shadow: 0 6px 16px rgba(31, 41, 55, 0.08);
+      position: relative;
+    }
+
+    .emitting::after {
+      content: "";
+      position: absolute;
+      inset: -8px;
+      border-radius: 24px;
+      border: 3px solid rgba(51, 92, 129, 0.25);
+      animation: pulse 1.4s infinite ease-out;
+    }
+
+    .xray .emitting::after {
+      border-color: rgba(122, 78, 157, 0.25);
+    }
+
+    @keyframes pulse {
+      0% { transform: scale(0.85); opacity: 0.9; }
+      100% { transform: scale(1.22); opacity: 0; }
+    }
+
+    .icon-label {
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-weight: 650;
+    }
+
+    .wave-space {
+      position: relative;
+      min-height: 210px;
+      border-left: 1px dashed #c7cfdb;
+      border-right: 1px dashed #c7cfdb;
+    }
+
+    svg {
+      width: 100%;
+      height: 210px;
+      display: block;
+      overflow: visible;
+    }
+
+    .axis {
+      stroke: #c8ced8;
+      stroke-width: 2;
+      stroke-dasharray: 8 8;
+    }
+
+    .travel-arrow {
+      stroke: #9aa5b5;
+      stroke-width: 3;
+      marker-end: url(#arrow);
+    }
+
+    .label-chip {
+      position: absolute;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: 4px;
+      padding: 6px 9px;
+      background: rgba(255,255,255,0.88);
+      border: 1px solid #dce2eb;
+      border-radius: 999px;
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .particle {
+      fill: var(--accent);
+      opacity: 0.95;
+    }
+
+    .particle-guide {
+      stroke: rgba(51, 92, 129, 0.25);
+      stroke-width: 1.5;
+    }
+
+    .compression {
+      fill: rgba(51, 92, 129, 0.11);
+    }
+
+    .wave-line {
+      fill: none;
+      stroke: var(--accent2);
+      stroke-width: 5;
+      stroke-linecap: round;
+    }
+
+    .field-dot {
+      fill: var(--accent2);
+    }
+
+    .field-guide {
+      stroke: rgba(122, 78, 157, 0.25);
+      stroke-width: 1.5;
+    }
+
+    .beam {
+      fill: rgba(122, 78, 157, 0.10);
+      stroke: rgba(122, 78, 157, 0.30);
+      stroke-width: 2;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin: 14px 0 0;
+      padding: 12px;
+      border-radius: 14px;
+      background: #f5f7fa;
+      border: 1px solid #e0e5ee;
+    }
+
+    button {
+      border: 0;
+      background: var(--ink);
+      color: #fff;
+      border-radius: 999px;
+      padding: 9px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover { filter: brightness(1.08); }
+
+    label {
+      color: var(--muted);
+      font-size: 0.92rem;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    input[type="range"] {
+      width: 120px;
+    }
+
+    .key {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border-radius: 14px;
+      background: #fbfcfe;
+      border: 1px solid #e4e9f1;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+
+    .key strong { color: var(--ink); }
+
+    .note {
+      margin-top: 18px;
+      padding: 14px 16px;
+      background: var(--warn);
+      border: 1px solid #f0df9f;
+      border-radius: 14px;
+      color: #5b4a18;
+    }
+
+    .mini {
+      font-size: 0.86rem;
+      color: var(--muted);
+      margin-top: 8px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Longitudinal vs. Transverse Waves</h1>
+    <p class="subtitle">
+      The imaging source stays still in these diagrams. What oscillates is the medium for ultrasound,
+      and the electromagnetic field for X-rays.
+    </p>
+  </header>
+
+  <main>
+    <section class="grid">
+      <article class="card ultrasound">
+        <h2>Longitudinal Wave: Ultrasound</h2>
+        <p class="tagline">Particle motion is <strong>parallel</strong> to the direction the wave travels.</p>
+
+        <div class="stage">
+          <div class="icon-row">
+            <div class="icon-block">
+              <div class="icon emitting" aria-label="Ultrasound probe">🔊</div>
+              <div class="icon-label">stationary<br>ultrasound probe</div>
+            </div>
+
+            <div class="wave-space">
+              <svg id="longitudinalSvg" viewBox="0 0 640 210" role="img" aria-label="Longitudinal ultrasound wave animation">
+                <defs>
+                  <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa5b5"></path>
+                  </marker>
+                </defs>
+                <line class="axis" x1="32" y1="105" x2="608" y2="105"></line>
+                <line class="travel-arrow" x1="78" y1="32" x2="562" y2="32"></line>
+                <text x="320" y="23" text-anchor="middle" fill="#6b7280" font-size="15" font-weight="700">wave travels this way</text>
+                <g id="compressionBands"></g>
+                <g id="longitudinalParticles"></g>
+              </svg>
+              <div class="label-chip">medium particles wiggle left ↔ right</div>
+            </div>
+
+            <div class="icon-block">
+              <div class="icon" aria-label="Ear organ target">👂</div>
+              <div class="icon-label">organ / tissue<br>being imaged</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="toggleLong">Pause</button>
+          <label>Speed <input id="speedLong" type="range" min="0.3" max="2.3" step="0.1" value="1"></label>
+          <label>Motion size <input id="ampLong" type="range" min="4" max="24" step="1" value="16"></label>
+        </div>
+
+        <div class="key">
+          <strong>Key idea:</strong> The ultrasound probe emits pressure waves. Nearby particles in tissue move back and forth,
+          creating alternating regions of compression and rarefaction.
+        </div>
+      </article>
+
+      <article class="card xray">
+        <h2>Transverse Wave: X-rays</h2>
+        <p class="tagline">Field oscillation is <strong>perpendicular</strong> to the direction the wave travels.</p>
+
+        <div class="stage">
+          <div class="icon-row">
+            <div class="icon-block">
+              <div class="icon emitting" aria-label="X-ray tube source">⚡</div>
+              <div class="icon-label">stationary<br>X-ray tube/source</div>
+            </div>
+
+            <div class="wave-space">
+              <svg id="transverseSvg" viewBox="0 0 640 210" role="img" aria-label="Transverse X-ray wave animation">
+                <defs>
+                  <marker id="arrow2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                    <path d="M 0 0 L 10 5 L 0 10 z" fill="#9aa5b5"></path>
+                  </marker>
+                </defs>
+                <line class="axis" x1="32" y1="105" x2="608" y2="105"></line>
+                <path class="beam" d="M35,75 L608,42 L608,168 L35,135 Z"></path>
+                <line class="travel-arrow" marker-end="url(#arrow2)" x1="78" y1="32" x2="562" y2="32"></line>
+                <text x="320" y="23" text-anchor="middle" fill="#6b7280" font-size="15" font-weight="700">wave travels this way</text>
+                <path id="transverseWave" class="wave-line" d=""></path>
+                <g id="fieldDots"></g>
+              </svg>
+              <div class="label-chip">electromagnetic field oscillates up ↕ down</div>
+            </div>
+
+            <div class="icon-block">
+              <div class="icon" aria-label="X-ray image target">🩻</div>
+              <div class="icon-label">object / detector<br>X-ray image</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="controls">
+          <button id="toggleTrans">Pause</button>
+          <label>Speed <input id="speedTrans" type="range" min="0.3" max="2.3" step="0.1" value="1"></label>
+          <label>Motion size <input id="ampTrans" type="range" min="12" max="54" step="1" value="38"></label>
+        </div>
+
+        <div class="key">
+          <strong>Key idea:</strong> The X-ray tube emits electromagnetic radiation. The tube itself is not moving up and down;
+          the oscillating quantity is the electromagnetic field.
+        </div>
+      </article>
+    </section>
+
+    <div class="note">
+      <strong>Teaching note:</strong> The icons are simplified imaging examples. Ultrasound is a mechanical wave that requires a medium.
+      X-rays are electromagnetic waves and do not require a material medium to travel.
+    </div>
+  </main>
+
+  <script>
+    const longParticlesG = document.getElementById("longitudinalParticles");
+    const bandsG = document.getElementById("compressionBands");
+    const wavePath = document.getElementById("transverseWave");
+    const fieldDotsG = document.getElementById("fieldDots");
+
+    const toggleLong = document.getElementById("toggleLong");
+    const toggleTrans = document.getElementById("toggleTrans");
+    const speedLong = document.getElementById("speedLong");
+    const speedTrans = document.getElementById("speedTrans");
+    const ampLong = document.getElementById("ampLong");
+    const ampTrans = document.getElementById("ampTrans");
+
+    let runningLong = true;
+    let runningTrans = true;
+    let t0 = performance.now();
+
+    const longParticles = [];
+    const cols = 24;
+    const rows = 5;
+    for (let i = 0; i < cols; i++) {
+      const x = 45 + i * (550 / (cols - 1));
+      for (let j = 0; j < rows; j++) {
+        const y = 72 + j * 16;
+        const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+        circle.setAttribute("r", "5.2");
+        circle.setAttribute("class", "particle");
+        longParticlesG.appendChild(circle);
+
+        const guide = document.createElementNS("http://www.w3.org/2000/svg", "line");
+        guide.setAttribute("class", "particle-guide");
+        guide.setAttribute("x1", x - 16);
+        guide.setAttribute("x2", x + 16);
+        guide.setAttribute("y1", y);
+        guide.setAttribute("y2", y);
+        longParticlesG.insertBefore(guide, circle);
+
+        longParticles.push({ circle, x, y });
+      }
+    }
+
+    const bandCount = 5;
+    const bands = [];
+    for (let i = 0; i < bandCount; i++) {
+      const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      rect.setAttribute("class", "compression");
+      rect.setAttribute("y", "58");
+      rect.setAttribute("height", "88");
+      rect.setAttribute("rx", "18");
+      bandsG.appendChild(rect);
+      bands.push(rect);
+    }
+
+    const fieldDots = [];
+    for (let i = 0; i < 13; i++) {
+      const x = 55 + i * (530 / 12);
+
+      const guide = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      guide.setAttribute("class", "field-guide");
+      guide.setAttribute("x1", x);
+      guide.setAttribute("x2", x);
+      guide.setAttribute("y1", 58);
+      guide.setAttribute("y2", 152);
+      fieldDotsG.appendChild(guide);
+
+      const dot = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      dot.setAttribute("class", "field-dot");
+      dot.setAttribute("r", "5.5");
+      fieldDotsG.appendChild(dot);
+      fieldDots.push({ dot, x });
+    }
+
+    toggleLong.addEventListener("click", () => {
+      runningLong = !runningLong;
+      toggleLong.textContent = runningLong ? "Pause" : "Play";
+    });
+
+    toggleTrans.addEventListener("click", () => {
+      runningTrans = !runningTrans;
+      toggleTrans.textContent = runningTrans ? "Pause" : "Play";
+    });
+
+    let phaseLong = 0;
+    let phaseTrans = 0;
+    let last = performance.now();
+
+    function drawTransverse(phase) {
+      const amp = Number(ampTrans.value);
+      const lambda = 145;
+      let d = "";
+      for (let x = 35; x <= 608; x += 6) {
+        const y = 105 + amp * Math.sin((x / lambda) * 2 * Math.PI - phase);
+        d += (x === 35 ? "M" : "L") + x.toFixed(1) + "," + y.toFixed(1) + " ";
+      }
+      wavePath.setAttribute("d", d);
+
+      for (const p of fieldDots) {
+        const y = 105 + amp * Math.sin((p.x / lambda) * 2 * Math.PI - phase);
+        p.dot.setAttribute("cx", p.x);
+        p.dot.setAttribute("cy", y);
+      }
+    }
+
+    function drawLongitudinal(phase) {
+      const amp = Number(ampLong.value);
+      const lambda = 128;
+
+      for (const p of longParticles) {
+        const dx = amp * Math.sin((p.x / lambda) * 2 * Math.PI - phase);
+        p.circle.setAttribute("cx", p.x + dx);
+        p.circle.setAttribute("cy", p.y);
+      }
+
+      for (let i = 0; i < bands.length; i++) {
+        const center = 45 + ((i * 128 + (phase * 128 / (2 * Math.PI))) % 640);
+        const x = ((center + 640) % 640) - 32;
+        bands[i].setAttribute("x", x);
+        bands[i].setAttribute("width", "54");
+      }
+    }
+
+    function animate(now) {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+
+      if (runningLong) {
+        phaseLong += dt * Number(speedLong.value) * 4.2;
+      }
+      if (runningTrans) {
+        phaseTrans += dt * Number(speedTrans.value) * 4.2;
+      }
+
+      drawLongitudinal(phaseLong);
+      drawTransverse(phaseTrans);
+
+      requestAnimationFrame(animate);
+    }
+
+    drawLongitudinal(0);
+    drawTransverse(0);
+    requestAnimationFrame(animate);
+  </script>
+</body>
+</html>
