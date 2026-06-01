@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Widefield vs Confocal Fluorescence Microscopy</title>
+<style>
+  :root{
+    --bg:#f7f7fb;
+    --panel:#ffffff;
+    --ink:#1f2937;
+    --muted:#6b7280;
+    --line:#d1d5db;
+    --green:#39d353;
+    --blue:#3b82f6;
+    --amber:#f59e0b;
+    --purple:#8b5cf6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+    padding:24px;
+  }
+  .widget{
+    max-width:1100px;
+    margin:0 auto;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:18px;
+    box-shadow:0 10px 30px rgba(0,0,0,.07);
+    overflow:hidden;
+  }
+  header{
+    padding:22px 26px 14px;
+    border-bottom:1px solid var(--line);
+  }
+  h1{font-size:24px; margin:0 0 6px;}
+  .subtitle{color:var(--muted); margin:0; line-height:1.45;}
+  .controls{
+    display:flex;
+    gap:12px;
+    align-items:center;
+    flex-wrap:wrap;
+    padding:16px 26px;
+    border-bottom:1px solid var(--line);
+    background:#fbfbfd;
+  }
+  .mode-btn{
+    border:2px solid var(--line);
+    background:#fff;
+    color:var(--ink);
+    padding:10px 16px;
+    border-radius:999px;
+    cursor:pointer;
+    font-weight:700;
+    font-size:15px;
+    transition:.15s ease;
+  }
+  .mode-btn.active{
+    border-color:var(--blue);
+    background:#eff6ff;
+    color:#1d4ed8;
+  }
+  .mode-btn:focus,
+  input[type="range"]:focus{
+    outline:none;
+  }
+  .mode-btn:focus-visible,
+  input[type="range"]:focus-visible{
+    outline:2px solid rgba(59,130,246,.45);
+    outline-offset:3px;
+  }
+  .focus-control{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-left:auto;
+    color:var(--muted);
+    font-weight:600;
+  }
+  input[type="range"]{width:170px;}
+  .main{
+    display:grid;
+    grid-template-columns: 1.1fr .9fr;
+    gap:0;
+    min-height:520px;
+  }
+  .left,.right{padding:22px 26px;}
+  .left{border-right:1px solid var(--line);}
+  h2{font-size:17px; margin:0 0 14px;}
+  .microscope-area{
+    position:relative;
+    height:390px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:linear-gradient(#ffffff,#f9fafb);
+    overflow:hidden;
+  }
+  .sample-stack{
+    position:absolute;
+    left:72px;
+    top:58px;
+    width:290px;
+    height:245px;
+  }
+  .slide{
+    position:absolute;
+    width:230px;
+    height:74px;
+    border:2px solid #9ca3af;
+    border-radius:10px;
+    background:rgba(255,255,255,.86);
+    box-shadow:0 5px 12px rgba(0,0,0,.08);
+    transform:skewY(-8deg);
+    z-index:4;
+  }
+  .slide[data-layer="1"]{left:40px; top:0;}
+  .slide[data-layer="2"]{left:20px; top:78px;}
+  .slide[data-layer="3"]{left:0; top:156px;}
+  .layer-label{
+    position:absolute;
+    left:10px;
+    top:8px;
+    font-size:12px;
+    color:#4b5563;
+    font-weight:700;
+  }
+  .dot{
+    position:absolute;
+    width:12px;
+    height:12px;
+    border-radius:50%;
+    background:var(--green);
+    box-shadow:0 0 12px rgba(57,211,83,.9);
+  }
+  .dot.a{left:75px;top:24px}.dot.b{left:130px;top:41px}.dot.c{left:178px;top:22px}
+  .dot.d{left:92px;top:42px}.dot.e{left:155px;top:24px}.dot.f{left:196px;top:47px}
+  .dot.g{left:68px;top:27px}.dot.h{left:135px;top:48px}.dot.i{left:188px;top:27px}
+  .illumination-label{
+    position:absolute;
+    top:18px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:13px;
+    font-weight:800;
+    color:#374151;
+    z-index:6;
+    background:rgba(255,255,255,.82);
+    border:1px solid var(--line);
+    border-radius:999px;
+    padding:5px 10px;
+  }
+  .widefield-light{
+    position:absolute;
+    left:74px;
+    top:50px;
+    width:300px;
+    height:270px;
+    background:linear-gradient(to bottom, rgba(57,211,83,.22), rgba(57,211,83,.08));
+    clip-path:polygon(15% 0, 85% 0, 100% 100%, 0 100%);
+    border-top:4px solid rgba(57,211,83,.55);
+    opacity:1;
+    transition:.2s ease;
+    z-index:1;
+  }
+  .confocal-beam{
+    position:absolute;
+    left:208px;
+    top:50px;
+    width:44px;
+    height:315px;
+    background:linear-gradient(to bottom,
+      rgba(59,130,246,.06) 0%,
+      rgba(59,130,246,.22) 36%,
+      rgba(59,130,246,.58) 68%,
+      rgba(59,130,246,.16) 100%);
+    clip-path:polygon(
+      42% 0%,
+      58% 0%,
+      56% 64%,
+      68% 100%,
+      32% 100%,
+      44% 64%
+    );
+    filter:blur(.5px);
+    box-shadow:0 0 18px rgba(59,130,246,.35);
+    opacity:0;
+    transition:.2s ease;
+    z-index:2;
+  }
+  .confocal-target{display:none;}
+  .pinhole{
+    position:absolute;
+    left:148px;
+    top:340px;
+    width:164px;
+    height:18px;
+    opacity:0;
+    transition:.2s ease;
+    pointer-events:none;
+    z-index:6;
+  }
+  .pinhole::before,
+  .pinhole::after{
+    content:"";
+    position:absolute;
+    top:7px;
+    width:66px;
+    height:5px;
+    background:#111827;
+    border-radius:999px;
+  }
+  .pinhole::before{left:0;}
+  .pinhole::after{right:0;}
+  .confocal .pinhole{opacity:1;}
+
+  
+
+  /* Simplified confocal visual:
+     Keep the left panel clean: the blue beam shows the selected focal plane.
+     Pinhole rejection is represented by the final-image behavior and the explanation text,
+     instead of a cluttered bottom schematic. */
+  .confocal .widefield-light{opacity:0;}
+  .confocal .confocal-beam{opacity:1;}
+  .sample-stack{z-index:4;}
+  .screen{
+    height:390px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#070b12;
+    position:relative;
+    overflow:hidden;
+  }
+  .screen-title{
+    position:absolute;
+    left:14px;
+    top:12px;
+    color:#e5e7eb;
+    font-weight:800;
+    font-size:14px;
+    z-index:2;
+  }
+  .image-dot{
+    position:absolute;
+    border-radius:50%;
+    background:var(--green);
+    transform:translate(-50%,-50%);
+  }
+  .sharp{width:14px;height:14px;box-shadow:0 0 12px rgba(57,211,83,.9); opacity:.95;}
+  .blur{width:54px;height:54px;filter:blur(7px);opacity:.45;}
+  .blur2{width:72px;height:72px;filter:blur(12px);opacity:.26;}
+  .note{
+    margin-top:14px;
+    padding:14px 16px;
+    border-radius:12px;
+    background:#f3f4f6;
+    color:#374151;
+    line-height:1.45;
+    font-size:15px;
+  }
+  .note strong{color:#111827}
+  .legend{
+    display:flex;
+    gap:14px;
+    flex-wrap:wrap;
+    margin-top:13px;
+    color:#4b5563;
+    font-size:13px;
+  }
+  .legend span{display:flex;align-items:center;gap:6px;}
+  .key{width:13px;height:13px;border-radius:50%;background:var(--green);box-shadow:0 0 7px rgba(57,211,83,.8)}
+  .key.blurkey{width:20px;height:20px;filter:blur(2px);opacity:.55}
+  .dimmed{opacity:.25;}
+  .focused-slide{border-color:var(--blue); box-shadow:0 0 0 4px rgba(59,130,246,.16), 0 5px 12px rgba(0,0,0,.08);}
+  @media(max-width:850px){
+    .main{grid-template-columns:1fr;}
+    .left{border-right:0;border-bottom:1px solid var(--line);}
+    .focus-control{margin-left:0;width:100%;}
+  }
+</style>
+</head>
+<body>
+  <div class="widget">
+    <header>
+      <h1>Widefield vs. Confocal Fluorescence Microscopy</h1>
+      <p class="subtitle">A simple depth-stack model: the specimen has three fluorescent layers. Toggle the imaging mode to see what reaches the final image.</p>
+    </header>
+
+    <div class="controls">
+      <button class="mode-btn active" id="widefieldBtn">Widefield</button>
+      <button class="mode-btn" id="confocalBtn">Confocal</button>
+      <div class="focus-control">
+        <label for="focusSlider">Focal plane:</label>
+        <input id="focusSlider" type="range" min="1" max="3" step="1" value="2" />
+        <strong id="focusText">Slide 2</strong>
+      </div>
+    </div>
+
+    <div class="main">
+      <section class="left">
+        <h2>Illumination of a three-layer specimen</h2>
+        <div class="microscope-area widefield" id="scopeArea">
+          <div class="sample-stack" id="sampleStack">
+            <div class="slide" data-layer="1"><span class="layer-label">Slide 1</span><span class="dot a"></span><span class="dot b"></span><span class="dot c"></span></div>
+            <div class="slide focused-slide" data-layer="2"><span class="layer-label">Slide 2</span><span class="dot d"></span><span class="dot e"></span><span class="dot f"></span></div>
+            <div class="slide" data-layer="3"><span class="layer-label">Slide 3</span><span class="dot g"></span><span class="dot h"></span><span class="dot i"></span></div>
+          </div>
+          <div class="illumination-label" id="illuminationLabel">Broad illumination</div>
+          <div class="widefield-light"></div>
+          <div class="confocal-beam"></div>
+          <div class="pinhole"></div>
+          
+          <div class="confocal-target" id="confocalTarget" data-target="2"></div>
+        </div>
+        <div class="legend">
+          <span><i class="key"></i> in-focus fluorescence</span>
+          <span><i class="key blurkey"></i> out-of-focus blur</span>
+        </div>
+      </section>
+
+      <section class="right">
+        <h2>Final fluorescence image</h2>
+        <div class="screen" id="screen">
+          <div class="screen-title" id="screenTitle">Widefield image</div>
+        </div>
+        <div class="note" id="explanation"></div>
+      </section>
+    </div>
+  </div>
+
+<script>
+const widefieldBtn = document.getElementById('widefieldBtn');
+const confocalBtn = document.getElementById('confocalBtn');
+const scopeArea = document.getElementById('scopeArea');
+const screen = document.getElementById('screen');
+const screenTitle = document.getElementById('screenTitle');
+const explanation = document.getElementById('explanation');
+const focusSlider = document.getElementById('focusSlider');
+const focusText = document.getElementById('focusText');
+const illuminationLabel = document.getElementById('illuminationLabel');
+const confocalTarget = document.getElementById('confocalTarget');
+const slides = [...document.querySelectorAll('.slide')];
+
+let mode = 'widefield';
+let focus = 2;
+
+const dotPositions = {
+  1: [[34,28],[52,54],[69,31]],
+  2: [[37,59],[55,36],[72,62]],
+  3: [[32,39],[51,66],[70,42]]
+};
+
+function setMode(newMode){
+  mode = newMode;
+  widefieldBtn.classList.toggle('active', mode === 'widefield');
+  confocalBtn.classList.toggle('active', mode === 'confocal');
+  scopeArea.classList.toggle('widefield', mode === 'widefield');
+  scopeArea.classList.toggle('confocal', mode === 'confocal');
+  render();
+}
+
+function render(){
+  focus = Number(focusSlider.value);
+  focusText.textContent = `Slide ${focus}`;
+  slides.forEach(slide => {
+    const layer = Number(slide.dataset.layer);
+    slide.classList.toggle('focused-slide', layer === focus);
+    slide.classList.remove('dimmed');
+  });
+
+  screen.querySelectorAll('.image-dot').forEach(el => el.remove());
+  screenTitle.textContent = mode === 'widefield' ? 'Widefield image' : 'Confocal image';
+  illuminationLabel.textContent = mode === 'widefield' ? 'Broad light hits all layers' : `Focused beam + pinhole detection`;
+
+  if(mode === 'widefield'){
+    Object.entries(dotPositions).forEach(([layer, dots]) => {
+      layer = Number(layer);
+      dots.forEach(([x,y]) => {
+        const d = document.createElement('div');
+        const distance = Math.abs(layer - focus);
+        d.className = 'image-dot ' + (distance === 0 ? 'sharp' : distance === 1 ? 'blur' : 'blur2');
+        d.style.left = `${x}%`;
+        d.style.top = `${y}%`;
+        screen.appendChild(d);
+      });
+    });
+    explanation.innerHTML = `<strong>Widefield:</strong> broad illumination excites the whole specimen. The camera receives light from the focal plane plus out-of-focus fluorescence from the layers above and below, creating blur.`;
+  } else {
+    dotPositions[focus].forEach(([x,y]) => {
+      const d = document.createElement('div');
+      d.className = 'image-dot sharp';
+      d.style.left = `${x}%`;
+      d.style.top = `${y}%`;
+      screen.appendChild(d);
+    });
+    explanation.innerHTML = `<strong>Confocal:</strong> the focused beam selects one depth, and pinhole detection rejects most out-of-focus fluorescence. The other layers are still present, but they contribute much less blur to the final image.`;
+  }
+}
+
+widefieldBtn.addEventListener('click', () => setMode('widefield'));
+confocalBtn.addEventListener('click', () => setMode('confocal'));
+focusSlider.addEventListener('input', render);
+render();
+</script>
+</body>
+</html>
